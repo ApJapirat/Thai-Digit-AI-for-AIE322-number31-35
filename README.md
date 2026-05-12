@@ -1,58 +1,86 @@
 # Thai Digit AI 31-35
 
-Flask web app for collecting 28x28 handwriting samples and predicting Thai digit labels `๓๑` to `๓๕`.
+โปรเจคนี้เป็นเว็บแอป Flask สำหรับเก็บตัวอย่างลายมือขนาด `28x28` และทำนายเลขภาษาไทยจาก `๓๑` ถึง `๓๕`.
 
-This project is PythonAnywhere free-tier friendly. It uses Flask, scikit-learn, Pillow, NumPy, and joblib only. There is no TensorFlow or Keras dependency.
+โครงการนี้ออกแบบให้ใช้งานได้ง่ายบน PythonAnywhere free-tier โดยใช้เพียง Flask, scikit-learn, Pillow, NumPy และ joblib เท่านั้น ไม่มีการพึ่งพา TensorFlow หรือ Keras.
 
-## Features
+## คุณสมบัติหลัก
 
-- Draw and save dataset samples for labels `31`, `32`, `33`, `34`, `35`
-- Train lightweight scikit-learn models from `dataset/31` through `dataset/35`
-- Save all trained models into `model_versions/`
-- Pick the active model from the Admin page
-- Predict with the active `model.joblib`
-- Show backend debug preview and per-label probabilities on the Predict page
+- วาดและบันทึกตัวอย่าง dataset สำหรับ label `31`, `32`, `33`, `34`, `35`
+- ฝึกโมเดล scikit-learn ที่น้ำหนักเบา
+- เก็บโมเดลที่ฝึกแล้วไว้ใน `model_versions/`
+- เลือกโมเดลที่ใช้งานได้จากหน้า Admin
+- ทำนายด้วยโมเดล `model.joblib`
+- แสดง preview และ probability ของแต่ละ label บนหน้า Predict
 
-## Routes
+## โครงสร้างโปรเจค
 
-- `GET /` - draw and save dataset samples
-- `GET /predict-page` - draw and test prediction
-- `GET /admin` - admin login, model upload, model metrics, and version switching
-- `POST /predict` - predict from a base64 image
-- `POST /upload-model` - upload and validate a `.joblib` model
-- `POST /activate-model-version` - activate a saved model from `model_versions/`
-- `GET /download-dataset` - download the dataset ZIP
+```text
+.
+├── create_weak_model.py
+├── image_preprocessing.py
+├── main.py
+├── model_manager.py
+├── README.md
+├── requirements.txt
+├── train.py
+├── dataset/
+│   ├── 31/
+│   ├── 32/
+│   ├── 33/
+│   ├── 34/
+│   ├── 35/
+│   └── metadata.csv
+├── demo_models/
+├── model_versions/
+├── static/
+│   └── style.css
+└── templates/
+    ├── admin.html
+    ├── index.html
+    └── predict.html
+```
 
-## Model Contract
+## เส้นทางหลักของเว็บ
 
-- Active model file: `model.joblib`
-- Model format: scikit-learn estimator saved with joblib
-- Input shape: `(1, 784)`
-- Input data: shared preprocessing output flattened to 784 normalized features
-- Classes: `31`, `32`, `33`, `34`, `35`
-- Returned Thai labels: `๓๑`, `๓๒`, `๓๓`, `๓๔`, `๓๕`
+- `GET /` - หน้าเขียนตัวเลขและบันทึกตัวอย่างลง dataset
+- `GET /predict-page` - หน้าวาดแล้วทดสอบการทำนาย
+- `GET /admin` - เข้าหน้าแอดมิน, อัปโหลดโมเดล, ดูเมตริกซ์, สลับเวอร์ชัน
+- `POST /predict` - ส่งภาพ base64 เพื่อทำนาย
+- `POST /upload-model` - อัปโหลดและตรวจสอบโมเดล `.joblib`
+- `POST /activate-model-version` - เปิดใช้งานโมเดลที่เก็บใน `model_versions/`
+- `GET /download-dataset` - ดาวน์โหลด dataset เป็น ZIP
 
-The app prefers classifiers with `predict_proba`. If a classifier only has `predict`, the API returns confidence `1.0` for the predicted class.
+## ข้อตกลงโมเดล
 
-## Preprocessing
+- โมเดลที่ใช้งานอยู่: `model.joblib`
+- ฟอร์แมตโมเดล: scikit-learn estimator เก็บด้วย joblib
+- รูปร่างข้อมูลเข้า: `(1, 784)`
+- ข้อมูลเข้า: แปลงจาก preprocessing ให้เป็นฟีเจอร์ 784 ค่า
+- คลาส: `31`, `32`, `33`, `34`, `35`
+- ป้ายผลลัพธ์ภาษาไทย: `๓๑`, `๓๒`, `๓๓`, `๓๔`, `๓๕`
 
-Training and web prediction both use [image_preprocessing.py](image_preprocessing.py).
+ระบบจะทำงานได้ดีที่สุดกับ classifier ที่มี `predict_proba` ถ้าโมเดลมีแค่ `predict` จะให้ความมั่นใจ `confidence` = `1.0` แก่คลาสที่ทำนายได้
 
-The shared preprocessing does this:
+## การเตรียมภาพก่อนส่งโมเดล
 
-- composite image on a white background
-- convert to grayscale
-- resize to `28x28`
-- auto-invert only when the background is dark
-- crop bounding box around ink
-- resize digit to fit inside `20x20`
-- paste centered on a `28x28` white canvas
-- normalize pixels to `0..1`
-- flatten to `784` features
+ทั้งการฝึกและการทำนายผ่านเว็บใช้ [image_preprocessing.py](image_preprocessing.py) ร่วมกัน
 
-This is important because the web canvas and dataset images must follow the same black-ink-on-white convention.
+ขั้นตอน preprocessing คือ:
 
-## Install
+- วางภาพบนพื้นหลังสีขาว
+- แปลงภาพเป็นระดับสีเทา
+- ย่อขนาดเป็น `28x28`
+- ตรวจสอบและกลับสีอัตโนมัติเมื่อพื้นหลังมืด
+- ตัดขอบภาพรอบหมึกเขียน
+- ย่อหรือขยายตัวเลขให้พอดีในกรอบ `20x20`
+- วางภาพตัวเลขตรงกลางบน canvas ขาว `28x28`
+- ปรับค่า pixel ให้เป็นช่วง `0..1`
+- แปลงเป็นเวกเตอร์ยาว `784`
+
+การทำ preprocessing ให้เหมือนกันทั้งฝั่งเว็บและ dataset สำคัญมาก เพื่อให้โมเดลเรียนรู้และทำนายได้ตรงตามรูปแบบ
+
+## ติดตั้ง
 
 ```powershell
 python -m venv .venv
@@ -62,7 +90,7 @@ pip install -r requirements.txt
 
 ## Dataset
 
-Dataset folders must exist here:
+โฟลเดอร์ dataset ต้องมีโครงสร้างดังนี้:
 
 ```text
 dataset/
@@ -71,26 +99,27 @@ dataset/
   33/
   34/
   35/
+  metadata.csv
 ```
 
-Each folder should contain PNG images for that label.
+แต่ละโฟลเดอร์ต้องมีไฟล์ PNG ของป้ายเลขนั้นๆ
 
-## Train
+## ฝึกโมเดล
 
-Run:
+รันคำสั่ง:
 
 ```powershell
 python train.py
 ```
 
-`train.py` trains these models:
+`train.py` จะฝึกโมเดลต่อไปนี้:
 
 - KNN
 - Decision Tree
 - Random Forest
 - SVM RBF
 
-Each trained model is saved:
+โมเดลที่ฝึกแล้วจะถูกบันทึกไว้ใน:
 
 ```text
 model_versions/knn.joblib
@@ -99,61 +128,61 @@ model_versions/random_forest.joblib
 model_versions/svm_rbf.joblib
 ```
 
-The best model by validation accuracy is also copied to:
+โมเดลที่ได้คะแนน validation สูงสุดจะถูกคัดลอกไปยัง:
 
 ```text
 model.joblib
 ```
 
-Training also writes:
+นอกจากนี้ยังสร้างไฟล์:
 
-- `training_metrics.json` - selected model and per-model metrics
-- `model_info.json` - active model metadata
-- `confusion_matrix.png` - confusion matrix for the selected best model
+- `training_metrics.json` - เมตริกซ์และโมเดลที่เลือก
+- `model_info.json` - ข้อมูลเมตาเกี่ยวกับโมเดลที่ใช้งาน
+- `confusion_matrix.png` - confusion matrix ของโมเดลที่ดีที่สุด
 
-Metrics include accuracy, precision, recall, f1-score, confusion matrix, model file, and trained timestamp.
+เมตริกซ์รวมถึงความแม่นยำ (accuracy), precision, recall, f1-score, confusion matrix, ชื่อไฟล์โมเดล และเวลาที่ฝึก
 
-## Admin
+## หน้า Admin
 
-Open:
+เปิดหน้า:
 
 ```text
 http://127.0.0.1:5000/admin
 ```
 
-Demo login:
+เข้าสาธิต:
 
 ```text
 username: admin
 password: 911
 ```
 
-The Admin page can:
+หน้า Admin สามารถ:
 
-- upload a `.joblib` model
-- validate model compatibility
-- show model versions from `model_versions/`
-- show accuracy, precision, recall, and f1-score for trained models
-- activate any saved model version
+- อัปโหลดโมเดล `.joblib`
+- ตรวจสอบความเข้ากันได้ของโมเดล
+- แสดงรายการเวอร์ชันใน `model_versions/`
+- แสดง accuracy, precision, recall, f1-score ของแต่ละโมเดล
+- สลับไปใช้โมเดลที่ต้องการ
 
-Activation validates the selected model before replacing `model.joblib`. If validation fails, the current active model stays unchanged.
+เมื่อกด activate ระบบจะตรวจสอบโมเดลก่อนแทนที่ `model.joblib` หากตรวจสอบไม่ผ่าน โมเดลเดิมจะยังคงทำงานอยู่
 
-## Prediction Debug
+## ตรวจสอบการทำนาย
 
-Open:
+เปิดหน้า:
 
 ```text
 http://127.0.0.1:5000/predict-page
 ```
 
-After prediction, the page shows:
+หลังทำนายจะแสดง:
 
-- predicted Thai label
-- confidence
-- exact backend-processed `28x28` image sent to the model
-- probabilities for labels `31`, `32`, `33`, `34`, `35`
+- ป้ายภาษาไทยที่ทำนายได้
+- ความมั่นใจ
+- รูปภาพ `28x28` ที่ส่งเข้าโมเดล
+- ความน่าจะเป็นของแต่ละ label `31`, `32`, `33`, `34`, `35`
 
-The `/predict` JSON response includes:
+ผล JSON จาก `/predict` จะมี:
 
 - `prediction`
 - `label`
@@ -161,13 +190,13 @@ The `/predict` JSON response includes:
 - `processed_image`
 - `probabilities`
 
-## Run Locally
+## รันในเครื่อง
 
 ```powershell
 python main.py
 ```
 
-Open:
+เปิดใช้งาน:
 
 ```text
 http://127.0.0.1:5000/
@@ -175,12 +204,12 @@ http://127.0.0.1:5000/predict-page
 http://127.0.0.1:5000/admin
 ```
 
-## PythonAnywhere Notes
+## หมายเหตุ PythonAnywhere
 
-Install requirements inside your PythonAnywhere virtualenv:
+ติดตั้ง dependencies ด้วย:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-No large deep-learning package is required. The active model is `model.joblib`, and all switchable models live in `model_versions/`.
+ไม่ต้องลงแพ็กเกจ deep-learning ใหญ่ๆ โปรเจคนี้ใช้โมเดลจาก scikit-learn และเก็บโมเดลที่สลับได้ใน `model_versions/`
