@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin | Thai Digit AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="nav-shell">
+      <a class="brand" href="{{ url_for('index') }}" aria-label="Thai Digit AI">
+        <span class="brand-mark">AI</span>
+        <span>
+          <strong>Thai Digit AI</strong>
+          <small>31-35 scikit-learn Demo</small>
+        </span>
+      </a>
+      <nav class="top-nav" aria-label="main navigation">
+        <a class="nav-link" href="{{ url_for('index') }}">เก็บข้อมูล</a>
+        <a class="nav-link" href="{{ url_for('predict_page') }}">ทำนายเลข</a>
+        <a class="nav-link active" href="{{ url_for('admin') }}">Admin</a>
+        {% if logged_in %}
+          <a class="nav-link danger" href="{{ url_for('admin_logout') }}">Logout</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <section class="page-hero">
+    <div>
+      <h1>{% if logged_in %}จัดการโมเดลและชุดข้อมูล{% else %}เข้าสู่ระบบผู้ดูแล{% endif %}</h1>
+      <p>อัปโหลดโมเดลใหม่ ตรวจ validation และ hot reload ให้ระบบ predict ใช้ทันที</p>
+    </div>
+  </section>
+
+  <main class="admin-main">
+    <section class="panel admin-panel">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="flash">
+            {% for message in messages %}
+              <p>{{ message }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      {% if not logged_in %}
+        <form class="login-form auth-card" method="post" action="{{ url_for('admin_login') }}">
+          <div class="section-title">
+            <span>Admin</span>
+            <div>
+              <h2>Login</h2>
+              <p class="instruction">ใช้บัญชี demo สำหรับจัดการโมเดล</p>
+            </div>
+          </div>
+
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" autocomplete="username" required>
+
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+          <button class="primary" type="submit">Login</button>
+          <p class="hint security-note">หมายเหตุ: username/password ถูก hardcode สำหรับ class demo เท่านั้น</p>
+        </form>
+      {% else %}
+        <div class="dashboard-cards">
+          <div class="model-status metric-card active-model-card">
+            <div class="status-heading">
+              <span>Current active model</span>
+              <b class="active-badge">ACTIVE MODEL</b>
+            </div>
+            <strong>{{ model_filename }}</strong>
+            <small>Updated: {{ model_updated }}</small>
+          </div>
+          <div class="metric-card">
+            <span>Upload timestamp</span>
+            <strong>{{ model_info.uploaded_at | default(model_updated) }}</strong>
+            <small>latest model metadata</small>
+          </div>
+          <div class="metric-card">
+            <span>Total samples</span>
+            <strong>{{ counts.values() | sum }}</strong>
+            <small>dataset images</small>
+          </div>
+        </div>
+
+        <div class="validation-box">
+          <div class="section-title">
+            <span>Model</span>
+            <div>
+              <h2>สถานะโมเดลล่าสุด</h2>
+              <p class="instruction">ข้อมูล validation และ version ที่ active อยู่</p>
+            </div>
+          </div>
+          {% if model_info %}
+            <div class="info-grid">
+              <span>Version</span>
+              <strong>{{ model_info.version_name }}</strong>
+              <span>Active file</span>
+              <strong>{{ model_info.active_model_file | default("model.joblib") }}</strong>
+              <span>Version copy</span>
+              <strong>{{ model_info.stored_version_file | default("-") }}</strong>
+              <span>ไฟล์ต้นฉบับ</span>
+              <strong>{{ model_info.original_filename }}</strong>
+              <span>ผลตรวจ</span>
+              <strong>{{ model_info.validation_status }}</strong>
+              <span>Input shape</span>
+              <strong>{{ model_info.input_shape }}</strong>
+              <span>Output shape</span>
+              <strong>{{ model_info.output_shape }}</strong>
+              <span>Accuracy</span>
+              <strong>{{ model_info.accuracy | default("-") }}</strong>
+              <span>F1-score</span>
+              <strong>{{ model_info.f1_score | default("-") }}</strong>
+              <span>ทดสอบเมื่อ</span>
+              <strong>{{ model_info.uploaded_at }}</strong>
+              <span>Activated</span>
+              <strong>{{ model_info.activated_at | default(model_info.uploaded_at) }}</strong>
+            </div>
+          {% else %}
+            <p class="hint">ยังไม่มีข้อมูล version จากการอัปโหลดผ่านหน้าเว็บนี้ แต่ถ้ามี `model.joblib` อยู่ ระบบยังใช้ predict ได้</p>
+          {% endif %}
+        </div>
+
+        <form class="upload-form upload-dropzone" method="post" action="{{ url_for('upload_model') }}" enctype="multipart/form-data">
+          <div class="section-title">
+            <span>Upload</span>
+            <div>
+              <h2>อัปโหลดโมเดลใหม่</h2>
+              <p class="instruction">รองรับไฟล์ `.joblib` ที่ predict input เป็น vector 784 features และ output 5 classes</p>
+            </div>
+          </div>
+
+          <label for="version_name">ชื่อ Version / หมายเหตุ</label>
+          <input id="version_name" name="version_name" type="text" placeholder="เช่น random-forest-v2, trained-2026-05-08">
+
+          <label class="file-drop" for="model">
+            <span class="file-icon">JOB</span>
+            <strong>เลือกไฟล์โมเดลใหม่ (.joblib)</strong>
+            <small>คลิกเพื่อเลือกไฟล์จากเครื่อง แล้วกด Upload & Validate Model</small>
+            <input id="model" name="model" type="file" accept=".joblib" required>
+          </label>
+          <button class="primary" type="submit">Upload & Validate Model</button>
+          <p class="hint security-note">ระบบจะลองโหลดไฟล์และ predict ด้วย input `(1, 784)` ก่อน ถ้า output ไม่ใช่ 5 classes จะไม่เปลี่ยน `model.joblib`</p>
+        </form>
+
+        <div class="admin-columns">
+          <section class="validation-box compact-section">
+            <h2>Model Versions</h2>
+            {% if model_versions %}
+              <div class="version-list">
+                {% for version in model_versions %}
+                  <div class="version-row{% if version.is_active %} active-version{% endif %}">
+                    <div class="version-heading">
+                      <div>
+                        <strong>{{ version.model_name }}</strong>
+                        <span>{{ version.filename }}</span>
+                      </div>
+                      {% if version.is_active %}
+                        <b class="active-badge">ACTIVE</b>
+                      {% else %}
+                        <form class="inline-version-form" method="post" action="{{ url_for('activate_model_version') }}">
+                          <input type="hidden" name="filename" value="{{ version.filename }}">
+                          <button class="ghost small-action" type="submit">Activate</button>
+                        </form>
+                      {% endif %}
+                    </div>
+                    <div class="version-metrics">
+                      <span>Accuracy <b>{{ version.accuracy }}</b></span>
+                      <span>Precision <b>{{ version.precision }}</b></span>
+                      <span>Recall <b>{{ version.recall }}</b></span>
+                      <span>F1 <b>{{ version.f1_score }}</b></span>
+                    </div>
+                    <span>{{ version.updated }} · {{ version.size_kb }} KB{% if version.trained_at %} · trained {{ version.trained_at }}{% endif %}</span>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="hint">ยังไม่มีไฟล์ version ใน `model_versions/`</p>
+            {% endif %}
+          </section>
+
+          <section class="validation-box compact-section">
+            <h2>จำนวนข้อมูลใน Dataset</h2>
+            <div class="counts admin-counts">
+              {% for label, count in counts.items() %}
+                <div class="count-row">
+                  <span>{{ thai_labels[label] }}</span>
+                  <strong>{{ count }}</strong>
+                </div>
+              {% endfor %}
+            </div>
+          </section>
+        </div>
+
+        <div class="validation-box dataset-check">
+          <h2>ตรวจ Dataset</h2>
+          {% if dataset_audit.ok %}
+            <p class="hint">Dataset พร้อมใช้งาน: ภาพทั้งหมดเปิดอ่านได้และรองรับ grayscale 28x28</p>
+          {% else %}
+            <p class="hint">พบปัญหา {{ dataset_audit.issue_count }} รายการในตัวอย่างที่ตรวจ:</p>
+            <ul class="issue-list">
+              {% for issue in dataset_audit.issues %}
+                <li>{{ issue }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+
+        <a class="download" href="{{ url_for('download_dataset') }}">Download Dataset ZIP</a>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

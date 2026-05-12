@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ทำนายเลขไทย | Thai Digit AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="nav-shell">
+      <a class="brand" href="{{ url_for('index') }}" aria-label="Thai Digit AI">
+        <span class="brand-mark">AI</span>
+        <span>
+          <strong>Thai Digit AI</strong>
+          <small>31-35 scikit-learn Demo</small>
+        </span>
+      </a>
+      <nav class="top-nav" aria-label="main navigation">
+        <a class="nav-link" href="{{ url_for('index') }}">เก็บข้อมูล</a>
+        <a class="nav-link active" href="{{ url_for('predict_page') }}">ทำนายเลข</a>
+        <a class="nav-link" href="{{ url_for('admin') }}">Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="page-hero">
+    <div>
+      <h1>ทดสอบโมเดลทำนายเลขไทย</h1>
+      <p>วาดเลขไทย ๓๑-๓๕ แล้วให้โมเดล scikit-learn ที่ active อยู่ทำนายผลแบบทันที</p>
+    </div>
+  </section>
+
+  <main class="app-grid predict-grid">
+    <section class="panel draw-panel">
+      <div class="section-title">
+        <span>Input</span>
+        <div>
+          <h2>วาดเลขเพื่อทำนาย</h2>
+          <p class="instruction">หน้านี้ใช้ทดสอบโมเดลเท่านั้น ไม่บันทึกข้อมูลลง dataset</p>
+        </div>
+      </div>
+
+      <div class="brush-control">
+        <div class="brush-label">
+          <span>ขนาดปากกา</span>
+          <span><span id="brushValue">16</span> px</span>
+        </div>
+        <input id="brushSize" type="range" min="4" max="28" value="16">
+      </div>
+
+      <div class="canvas-frame">
+        <canvas id="canvas" width="320" height="320" aria-label="พื้นที่วาดเลขไทยสำหรับทำนาย"></canvas>
+      </div>
+
+      <div class="buttons">
+        <button id="predict" class="primary" type="button">Predict</button>
+        <button id="clear" class="ghost" type="button">Clear</button>
+      </div>
+
+      <div id="status" class="status"></div>
+    </section>
+
+    <section class="panel result-panel">
+      <div class="result-orbit" aria-hidden="true"></div>
+      <div class="section-title">
+        <span>Output</span>
+        <div>
+          <h2>ผลการทำนาย</h2>
+          <p class="instruction">ผลลัพธ์จาก active model ใน memory</p>
+        </div>
+      </div>
+
+      <div class="prediction-card" id="predictionCard">
+        <span class="muted">Predicted Thai Digit</span>
+        <strong id="predictionText">-</strong>
+        <small id="loadingText">กำลังประมวลผล</small>
+      </div>
+
+      <div class="confidence-row">
+        <span>Confidence</span>
+        <strong id="confidenceText">0%</strong>
+      </div>
+      <div class="progress" aria-label="confidence progress">
+        <div id="confidenceBar"></div>
+      </div>
+      <div class="debug-panel">
+        <div class="debug-preview">
+          <span>Backend 28x28</span>
+          <img id="processedPreview" alt="processed 28x28 preview">
+        </div>
+        <div class="probability-list" id="probabilityList" aria-label="probabilities for all labels">
+          <div class="probability-row" data-label="31"><span>31</span><b>0%</b></div>
+          <div class="probability-row" data-label="32"><span>32</span><b>0%</b></div>
+          <div class="probability-row" data-label="33"><span>33</span><b>0%</b></div>
+          <div class="probability-row" data-label="34"><span>34</span><b>0%</b></div>
+          <div class="probability-row" data-label="35"><span>35</span><b>0%</b></div>
+        </div>
+      </div>
+      <p id="predictionHelp" class="hint">ต้องมี `model.joblib` ก่อนจึงจะทำนายได้ รัน `python train.py` หรืออัปโหลดโมเดลในหน้า Admin</p>
+    </section>
+  </main>
+
+  <script>
+    const minInkPixels = 140;
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const brushSize = document.getElementById("brushSize");
+    const brushValue = document.getElementById("brushValue");
+    const predictButton = document.getElementById("predict");
+    const clearButton = document.getElementById("clear");
+    const statusNode = document.getElementById("status");
+    const predictionText = document.getElementById("predictionText");
+    const confidenceText = document.getElementById("confidenceText");
+    const confidenceBar = document.getElementById("confidenceBar");
+    const predictionHelp = document.getElementById("predictionHelp");
+    const predictionCard = document.getElementById("predictionCard");
+    const processedPreview = document.getElementById("processedPreview");
+    const probabilityList = document.getElementById("probabilityList");
+
+    let drawing = false;
+    let hasInk = false;
+
+    function resetCanvas() {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Number(brushSize.value);
+      ctx.strokeStyle = "#05070a";
+      hasInk = false;
+    }
+
+    function updateBrushSize() {
+      const size = Number(brushSize.value);
+      ctx.lineWidth = size;
+      brushValue.textContent = size;
+      brushSize.style.setProperty("--value", `${((size - 4) / 24) * 100}%`);
+    }
+
+    function pointerPosition(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - rect.left) * (canvas.width / rect.width),
+        y: (event.clientY - rect.top) * (canvas.height / rect.height)
+      };
+    }
+
+    function startDrawing(event) {
+      event.preventDefault();
+      drawing = true;
+      hasInk = true;
+      canvas.setPointerCapture(event.pointerId);
+      updateBrushSize();
+      const pos = pointerPosition(event);
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    }
+
+    function draw(event) {
+      if (!drawing) return;
+      event.preventDefault();
+      const pos = pointerPosition(event);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    }
+
+    function stopDrawing(event) {
+      drawing = false;
+      ctx.closePath();
+      if (event && canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+    }
+
+    function countInkPixels(sourceCanvas) {
+      const imageData = sourceCanvas.getContext("2d").getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      let inkPixels = 0;
+      for (let index = 0; index < imageData.data.length; index += 4) {
+        if (Math.min(imageData.data[index], imageData.data[index + 1], imageData.data[index + 2]) < 245) {
+          inkPixels += 1;
+        }
+      }
+      return inkPixels;
+    }
+
+    function export28x28() {
+      const output = document.createElement("canvas");
+      output.width = 28;
+      output.height = 28;
+      const outputCtx = output.getContext("2d");
+      outputCtx.fillStyle = "#ffffff";
+      outputCtx.fillRect(0, 0, output.width, output.height);
+      outputCtx.imageSmoothingEnabled = true;
+      outputCtx.imageSmoothingQuality = "high";
+      outputCtx.drawImage(canvas, 0, 0, output.width, output.height);
+      return output.toDataURL("image/png");
+    }
+
+    function setConfidence(value) {
+      const percent = Math.max(0, Math.min(100, Math.round(value * 100)));
+      confidenceText.textContent = `${percent}%`;
+      confidenceBar.style.width = `${percent}%`;
+      confidenceBar.className = percent >= 80 ? "high" : percent >= 50 ? "medium" : "low";
+    }
+
+    function setLoading(isLoading) {
+      predictionCard.classList.toggle("loading", isLoading);
+      predictButton.classList.toggle("loading", isLoading);
+    }
+
+    function resetDebug() {
+      processedPreview.removeAttribute("src");
+      probabilityList.querySelectorAll(".probability-row").forEach((row) => {
+        row.classList.remove("top");
+        row.querySelector("b").textContent = "0%";
+        row.style.setProperty("--probability", "0%");
+      });
+    }
+
+    function updateDebug(result) {
+      if (result.processed_image) {
+        processedPreview.src = result.processed_image;
+      }
+      const probabilities = result.probabilities || {};
+      probabilityList.querySelectorAll(".probability-row").forEach((row) => {
+        const label = row.dataset.label;
+        const item = probabilities[label];
+        const probability = item ? item.probability : 0;
+        const percent = Math.max(0, Math.min(100, Math.round(probability * 100)));
+        row.classList.toggle("top", label === result.label);
+        row.querySelector("b").textContent = `${percent}%`;
+        row.style.setProperty("--probability", `${percent}%`);
+      });
+    }
+
+    function requireInk() {
+      if (!hasInk || countInkPixels(canvas) < minInkPixels) {
+        statusNode.textContent = "กรุณาเขียนตัวเลขให้ชัดเจนก่อน";
+        return false;
+      }
+      return true;
+    }
+
+    async function predictDigit() {
+      if (!requireInk()) return;
+      predictButton.disabled = true;
+      setLoading(true);
+      statusNode.textContent = "กำลังทำนาย...";
+      predictionHelp.textContent = "กำลังส่งภาพ 28x28 ไปยังโมเดล";
+      try {
+        const response = await fetch("/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: export28x28() })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "Predict failed");
+
+        predictionText.textContent = result.prediction;
+        setConfidence(result.confidence);
+        updateDebug(result);
+        const percent = (result.confidence * 100).toFixed(2);
+        predictionHelp.textContent = `โมเดลทำนายเป็น ${result.prediction} ด้วยความมั่นใจ ${percent}%`;
+        statusNode.textContent = "ทำนายเรียบร้อย";
+      } catch (error) {
+        predictionText.textContent = "-";
+        setConfidence(0);
+        resetDebug();
+        predictionHelp.textContent = error.message;
+        statusNode.textContent = "ทำนายไม่สำเร็จ";
+      } finally {
+        setLoading(false);
+        predictButton.disabled = false;
+      }
+    }
+
+    canvas.addEventListener("pointerdown", startDrawing);
+    canvas.addEventListener("pointermove", draw);
+    canvas.addEventListener("pointerup", stopDrawing);
+    canvas.addEventListener("pointerleave", stopDrawing);
+    canvas.addEventListener("pointercancel", stopDrawing);
+    brushSize.addEventListener("input", updateBrushSize);
+    predictButton.addEventListener("click", predictDigit);
+    clearButton.addEventListener("click", () => {
+      resetCanvas();
+      predictionText.textContent = "-";
+      setConfidence(0);
+      resetDebug();
+      predictionHelp.textContent = "วาดเลขไทย ๓๑-๓๕ แล้วกด Predict";
+      statusNode.textContent = "ล้างภาพแล้ว";
+    });
+
+    resetCanvas();
+    updateBrushSize();
+    setConfidence(0);
+    resetDebug();
+  </script>
+</body>
+</html>

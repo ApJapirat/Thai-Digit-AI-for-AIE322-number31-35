@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>เก็บข้อมูลเลขไทย | Thai Digit AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="nav-shell">
+      <a class="brand" href="{{ url_for('index') }}" aria-label="Thai Digit AI">
+        <span class="brand-mark">AI</span>
+        <span>
+          <strong>Thai Digit AI</strong>
+          <small>31-35 scikit-learn Demo</small>
+        </span>
+      </a>
+      <nav class="top-nav" aria-label="main navigation">
+        <a class="nav-link active" href="{{ url_for('index') }}">เก็บข้อมูล</a>
+        <a class="nav-link" href="{{ url_for('predict_page') }}">ทำนายเลข</a>
+        <a class="nav-link" href="{{ url_for('admin') }}">Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="page-hero">
+    <div>
+      <h1>เก็บข้อมูลลายมือเลขไทย ๓๑-๓๕</h1>
+      <p>วาดตัวอย่างใหม่ บันทึกเป็นภาพ 28x28 และติดตามความสมดุลของ dataset สำหรับโมเดล scikit-learn</p>
+    </div>
+  </section>
+
+  <main class="app-grid">
+    <section class="panel draw-panel">
+      <div class="section-title">
+        <span>01</span>
+        <div>
+          <h2>เขียนตัวอย่างข้อมูล</h2>
+          <p class="instruction">รองรับเมาส์ นิ้ว และปากกา stylus เขียนให้ชัดเจนกลางช่อง</p>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        <label for="contributor">ชื่อผู้เขียน / Contributor</label>
+        <input id="contributor" type="text" autocomplete="name" placeholder="ไม่บังคับ">
+
+        <label for="label">ป้ายกำกับสำหรับบันทึกข้อมูล</label>
+        <select id="label">
+          {% for label in labels %}
+            <option value="{{ label }}">{{ thai_labels[label] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="brush-control">
+        <div class="brush-label">
+          <span>ขนาดปากกา</span>
+          <span><span id="brushValue">16</span> px</span>
+        </div>
+        <input id="brushSize" type="range" min="4" max="28" value="16">
+      </div>
+
+      <div class="canvas-frame">
+        <canvas id="canvas" width="320" height="320" aria-label="พื้นที่วาดเลขไทย"></canvas>
+      </div>
+
+      <div class="buttons three">
+        <button id="save" class="primary" type="button">Save Sample</button>
+        <button id="clear" class="ghost" type="button">Clear</button>
+        <button id="deleteLast" class="danger-button wide" type="button" disabled>Delete Last Sample</button>
+      </div>
+
+      <div id="status" class="status"></div>
+    </section>
+
+    <section class="panel stats-panel">
+      <div class="section-title">
+        <span>02</span>
+        <div>
+          <h2>สรุปข้อมูล</h2>
+          <p class="instruction">จำนวนตัวอย่างและภาพล่าสุดใน dataset</p>
+        </div>
+      </div>
+
+      <div class="total-card">
+        <span>ตัวอย่างทั้งหมด</span>
+        <strong id="totalImages">0</strong>
+      </div>
+
+      <div id="counts" class="counts"></div>
+
+      <div class="subsection-heading">
+        <h2>ภาพล่าสุด</h2>
+      </div>
+      <div class="preview-box" id="previewBox">
+        <span class="muted">ยังไม่มีภาพล่าสุด</span>
+      </div>
+
+      <div class="subsection-heading">
+        <h2>ตัวอย่างล่าสุด 5 ภาพ</h2>
+      </div>
+      <div id="recentSamples" class="recent-list"></div>
+
+      <a class="download" href="{{ url_for('download_dataset') }}">Download Dataset ZIP</a>
+    </section>
+  </main>
+
+  <script>
+    const labels = {{ labels | list | tojson }};
+    const thaiLabels = {{ thai_labels | tojson }};
+    const minInkPixels = 140;
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const contributorInput = document.getElementById("contributor");
+    const labelSelect = document.getElementById("label");
+    const brushSize = document.getElementById("brushSize");
+    const brushValue = document.getElementById("brushValue");
+    const saveButton = document.getElementById("save");
+    const clearButton = document.getElementById("clear");
+    const deleteLastButton = document.getElementById("deleteLast");
+    const countsNode = document.getElementById("counts");
+    const totalImagesNode = document.getElementById("totalImages");
+    const previewBox = document.getElementById("previewBox");
+    const recentSamplesNode = document.getElementById("recentSamples");
+    const statusNode = document.getElementById("status");
+
+    let drawing = false;
+    let hasInk = false;
+    let lastSaved = null;
+
+    function resetCanvas() {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Number(brushSize.value);
+      ctx.strokeStyle = "#05070a";
+      hasInk = false;
+    }
+
+    function updateBrushSize() {
+      const size = Number(brushSize.value);
+      ctx.lineWidth = size;
+      brushValue.textContent = size;
+      brushSize.style.setProperty("--value", `${((size - 4) / 24) * 100}%`);
+    }
+
+    function pointerPosition(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - rect.left) * (canvas.width / rect.width),
+        y: (event.clientY - rect.top) * (canvas.height / rect.height)
+      };
+    }
+
+    function startDrawing(event) {
+      event.preventDefault();
+      drawing = true;
+      hasInk = true;
+      canvas.setPointerCapture(event.pointerId);
+      updateBrushSize();
+      const pos = pointerPosition(event);
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    }
+
+    function draw(event) {
+      if (!drawing) return;
+      event.preventDefault();
+      const pos = pointerPosition(event);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    }
+
+    function stopDrawing(event) {
+      drawing = false;
+      ctx.closePath();
+      if (event && canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+    }
+
+    function countInkPixels(sourceCanvas) {
+      const imageData = sourceCanvas.getContext("2d").getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      let inkPixels = 0;
+      for (let index = 0; index < imageData.data.length; index += 4) {
+        if (Math.min(imageData.data[index], imageData.data[index + 1], imageData.data[index + 2]) < 245) {
+          inkPixels += 1;
+        }
+      }
+      return inkPixels;
+    }
+
+    function export28x28() {
+      const output = document.createElement("canvas");
+      output.width = 28;
+      output.height = 28;
+      const outputCtx = output.getContext("2d");
+      outputCtx.fillStyle = "#ffffff";
+      outputCtx.fillRect(0, 0, output.width, output.height);
+      outputCtx.imageSmoothingEnabled = true;
+      outputCtx.imageSmoothingQuality = "high";
+      outputCtx.drawImage(canvas, 0, 0, output.width, output.height);
+      return output.toDataURL("image/png");
+    }
+
+    function renderCounts(counts) {
+      countsNode.innerHTML = "";
+      labels.forEach((label) => {
+        const row = document.createElement("div");
+        const labelNode = document.createElement("span");
+        const countNode = document.createElement("strong");
+        row.className = "count-row";
+        labelNode.textContent = thaiLabels[label];
+        countNode.textContent = counts[label] || 0;
+        row.append(labelNode, countNode);
+        countsNode.appendChild(row);
+      });
+    }
+
+    function renderRecent(samples) {
+      recentSamplesNode.innerHTML = "";
+      if (samples.length === 0) {
+        recentSamplesNode.innerHTML = '<span class="muted">ยังไม่มีตัวอย่าง</span>';
+        return;
+      }
+      samples.forEach((sample) => {
+        const image = document.createElement("img");
+        image.src = `${sample.image_url}?v=${encodeURIComponent(sample.saved_at)}`;
+        image.alt = thaiLabels[sample.label] || "recent sample";
+        recentSamplesNode.appendChild(image);
+      });
+    }
+
+    async function refreshDashboard() {
+      const response = await fetch("/stats");
+      const stats = await response.json();
+      totalImagesNode.textContent = stats.total_images;
+      renderCounts(stats.counts_per_label || {});
+      renderRecent(stats.recent_samples || []);
+    }
+
+    function requireInk() {
+      if (!hasInk || countInkPixels(canvas) < minInkPixels) {
+        statusNode.textContent = "กรุณาเขียนตัวเลขให้ชัดเจนก่อน";
+        return false;
+      }
+      return true;
+    }
+
+    async function saveSample() {
+      if (!requireInk()) return;
+      saveButton.disabled = true;
+      statusNode.textContent = "กำลังบันทึก...";
+      const image = export28x28();
+      try {
+        const response = await fetch("/save-sample", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label: labelSelect.value, contributor: contributorInput.value.trim(), image })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "ไม่สามารถบันทึกภาพได้");
+
+        previewBox.innerHTML = "";
+        const preview = document.createElement("img");
+        preview.src = image;
+        preview.alt = `Last saved ${thaiLabels[labelSelect.value]}`;
+        previewBox.appendChild(preview);
+        lastSaved = { label: result.label, filename: result.filename };
+        deleteLastButton.disabled = false;
+        statusNode.textContent = `บันทึกแล้ว: ${result.filename}`;
+        await refreshDashboard();
+        resetCanvas();
+      } catch (error) {
+        statusNode.textContent = error.message;
+      } finally {
+        saveButton.disabled = false;
+      }
+    }
+
+    async function deleteLastSaved() {
+      if (!lastSaved) return;
+      deleteLastButton.disabled = true;
+      statusNode.textContent = "กำลังลบตัวอย่างล่าสุด...";
+      try {
+        const response = await fetch("/delete-sample", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(lastSaved)
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "ไม่สามารถลบตัวอย่างล่าสุดได้");
+
+        const deleted = lastSaved.filename;
+        lastSaved = null;
+        previewBox.innerHTML = '<span class="muted">ยังไม่มีภาพล่าสุด</span>';
+        statusNode.textContent = `ลบแล้ว: ${deleted}`;
+        await refreshDashboard();
+      } catch (error) {
+        statusNode.textContent = error.message;
+        deleteLastButton.disabled = false;
+      }
+    }
+
+    canvas.addEventListener("pointerdown", startDrawing);
+    canvas.addEventListener("pointermove", draw);
+    canvas.addEventListener("pointerup", stopDrawing);
+    canvas.addEventListener("pointerleave", stopDrawing);
+    canvas.addEventListener("pointercancel", stopDrawing);
+    brushSize.addEventListener("input", updateBrushSize);
+    saveButton.addEventListener("click", saveSample);
+    deleteLastButton.addEventListener("click", deleteLastSaved);
+    clearButton.addEventListener("click", () => {
+      resetCanvas();
+      statusNode.textContent = "ล้างภาพแล้ว";
+    });
+
+    resetCanvas();
+    updateBrushSize();
+    refreshDashboard().catch(() => {
+      statusNode.textContent = "ไม่สามารถโหลดข้อมูลสรุปได้";
+    });
+  </script>
+</body>
+</html>
